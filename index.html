@@ -2,11 +2,13 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>AR Fotografie</title>
 
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <!-- Alle Inhalte (Modell, Hotspots, Texte) stehen in config.js. Das ist die Datei, die die Gruppen ändern. -->
+  <script src="./config.js"></script>
 
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; touch-action: none;
@@ -21,17 +23,17 @@
 
     /* Knöpfe zum Zoomen und Zurücksetzen (rechts, mittig) */
     #tools {
-      display: none; position: fixed; right: 12px; top: 50%; transform: translateY(-50%);
+      display: none; position: fixed; right: calc(12px + env(safe-area-inset-right, 0px));
+      top: 50%; transform: translateY(-50%);
       z-index: 15; flex-direction: column; gap: 10px;
     }
     #tools button {
       width: 52px; height: 52px; border: 0; border-radius: 50%;
-      background: rgba(0,0,0,.65); color: #fff; font-size: 1.6rem; line-height: 1;
-      cursor: pointer;
+      background: rgba(0,0,0,.65); color: #fff; font-size: 1.6rem; line-height: 1; cursor: pointer;
     }
     #tools button:active { background: rgba(0,0,0,.9); }
 
-    /* Infofenster (unten) */
+    /* Infofenster */
     #info {
       display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
       background: #fff; color: #111; padding: 1rem 1.25rem 1.4rem;
@@ -46,19 +48,68 @@
       width: 2.2rem; height: 2.2rem; font-size: 1.2rem; cursor: pointer;
     }
 
-    /* Gelbes Meldungsfeld: Fehler, und mit ?debug auch Koordinaten */
+    /* Gelbes Meldungsfeld: Status, Fehler, und mit ?debug die Hotspot-Werte */
     #msg {
       display: none; position: fixed; top: 64px; left: 12px; right: 12px; z-index: 1000;
       background: rgba(255,255,0,.92); color: #000; padding: .5rem;
-      font: .85rem monospace; border-radius: 8px; word-break: break-word;
+      font: .8rem monospace; border-radius: 8px; word-break: break-word;
+      white-space: pre-wrap; max-height: 38%; overflow: auto; pointer-events: none;
+    }
+
+    /* Hotspot-Editor (nur mit ?debug) */
+    #editor {
+      display: none; position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      z-index: 15; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 80%;
+    }
+    #editor button {
+      min-width: 46px; height: 46px; border: 0; border-radius: 10px; padding: 0 .8rem;
+      background: rgba(0,0,0,.75); color: #fff; font-size: 1rem; cursor: pointer;
+    }
+    #editor button.sel { background: #ff6a00; }
+
+    /* Bearbeiten-Bereich (nur mit ?preview) */
+    #edit {
+      display: none; position: fixed; left: 12px; top: 70px; z-index: 15;
+      width: min(360px, calc(100vw - 24px)); max-height: calc(100% - 90px); overflow: auto;
+      background: rgba(0,0,0,.8); color: #fff; padding: .7rem; border-radius: 12px; font-size: .9rem;
+    }
+    #edit label { display: block; margin: .35rem 0 .15rem; opacity: .85; }
+    #edit input, #edit textarea {
+      width: 100%; box-sizing: border-box; border: 0; border-radius: 6px; padding: .45rem;
+      font: inherit; color: #111; -webkit-user-select: text; user-select: text;
+    }
+    #edit textarea { min-height: 7rem; resize: vertical; }
+    #edit .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: .55rem; }
+    #edit button {
+      border: 0; border-radius: 8px; padding: .5rem .75rem; background: #4a4a4a; color: #fff;
+      font-size: .9rem; cursor: pointer;
+    }
+    #edit button.main { background: #ff6a00; }
+    #editStatus { margin-top: .5rem; font: .75rem monospace; opacity: .85; word-break: break-word; }
+
+    /* Querformat: Infofenster links an der Seite, kleinere Hinweise */
+    @media (orientation: landscape) {
+      #hint { top: 8px; left: 90px; right: 90px; font-size: .8rem; padding: .35rem .7rem; }
+      #info {
+        top: 0; bottom: 0; left: 0; right: auto; width: 42%; max-height: none;
+        padding-left: calc(1.25rem + env(safe-area-inset-left, 0px));
+        border-radius: 0 14px 14px 0; box-shadow: 4px 0 16px rgba(0,0,0,.3);
+      }
+      #msg { top: 52px; max-height: 45%; }
     }
   </style>
 </head>
 <body>
 
-  <!-- Hinweis: Das Element heißt a-camera (mit "a" am Ende). -->
+  <!--
+    Stabilität (Marker-Erkennung), die wichtigsten Werte:
+      missTolerance   = wie viele Kamerabilder ohne Erkennung toleriert werden, bevor das Modell verschwindet
+      warmupTolerance = wie viele Bilder nötig sind, bis die Marke als gefunden gilt
+      filterMinCF     = kleiner = ruhigeres Bild, aber träger
+      filterBeta      = größer = folgt schnellen Bewegungen besser
+  -->
   <a-scene
-    mindar-image="imageTargetSrc: ./targets.mind; missTolerance: 30; warmupTolerance: 5; filterMinCF: 0.0005; filterBeta: 100;"
+    mindar-image="imageTargetSrc: ./targets.mind; missTolerance: 90; warmupTolerance: 5; filterMinCF: 0.0005; filterBeta: 100;"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false"
   >
@@ -97,6 +148,18 @@
     <button id="reset"   type="button" aria-label="Zurücksetzen">⟲</button>
   </div>
 
+  <div id="editor" class="ui"></div>
+
+  <div id="edit" class="ui">
+    <strong>Ausgewählter Punkt (orange)</strong>
+    <label for="editTitle">Überschrift</label>
+    <input id="editTitle" type="text" maxlength="80">
+    <label for="editText">Text</label>
+    <textarea id="editText" maxlength="600"></textarea>
+    <div class="row" id="editButtons"></div>
+    <div id="editStatus"></div>
+  </div>
+
   <div id="info" class="ui">
     <button id="infoClose" type="button" aria-label="Schließen">×</button>
     <h3 id="infoTitle"></h3>
@@ -107,54 +170,37 @@
 
   <script>
     // =====================================================
-    // EINSTELLUNGEN (hier darfst du ändern)
+    // EINSTELLUNGEN der Technik (Modell, Hotspots und Texte stehen in config.js)
     // =====================================================
-
-    // Dateiname des 3D-Modells (.obj oder .glb). Muss GENAU so heißen wie die Datei im Ordner models/.
-    const MODEL_FILE = './models/camera.obj';
-
-    // Größe des Modells in Marker-Breiten (1 = so breit wie die Marke)
-    const MODEL_SIZE = 0.5;
-
-    // Abstand des Modells vor der Marke
-    const MODEL_Z = 0.25;
-
-    // Grunddrehung in Grad "x y z". Steht die Kamera falsch herum, z. B. "0 180 0" oder "90 0 0" probieren.
-    const START_ROT = "0 0 0";
-
-    // Seitenverhältnis der Marke (Höhe / Breite), nur für die blaue Kontrollfläche
-    const MARKER_ASPECT = 0.727;
 
     // Zoom-Grenzen (1 = Normalgröße)
     const ZOOM_MIN = 0.3, ZOOM_MAX = 4;
 
-    // Hotspots: position = "x y z" relativ zur Modellmitte (in Marker-Breiten).
-    // Die Werte sind nur STARTWERTE. Echte Werte findest du so:
-    //   Seite mit ?debug öffnen, auf eine Stelle des Modells tippen, im gelben Feld steht die Position.
-    const HOTSPOTS = [
-      {
-        position: "0 0.03 0.15",
-        title: "Objektiv",
-        text: "Das Objektiv bündelt das Licht und erzeugt das Bild auf dem Sensor. Die Brennweite bestimmt den Bildausschnitt, die Blende die Lichtmenge und die Schärfentiefe."
-      },
-      {
-        position: "0.12 0.1 0",
-        title: "Sucher",
-        text: "Im Sucher siehst du das Motiv vor der Aufnahme und kannst den Bildausschnitt festlegen. Meist werden hier auch Blende, Belichtungszeit und ISO eingeblendet."
-      },
-      {
-        position: "-0.12 0.1 0",
-        title: "Auslöser",
-        text: "Ein halber Druck stellt meist scharf und misst das Licht. Beim vollen Druck öffnet sich der Verschluss, wie lange, bestimmt die Belichtungszeit."
-      }
-    ];
+    // Standardgröße der gelben Punkte (Radius in Marker-Breiten) und Mindest-Trefferfläche in Pixeln
+    const HOTSPOT_SIZE = 0.04;
+    const TAP_RADIUS_PX = 44;
+
+    // Nach dem Drehen des Handys die Seite neu laden? Nur als Notlösung, falls das Bild danach verzerrt ist.
+    const RELOAD_ON_ROTATE = false;
 
     // =====================================================
     // AB HIER: Technik. Für den Anfang nichts ändern.
     // =====================================================
 
+    if (typeof MODEL_FILE === 'undefined' || typeof HOTSPOTS === 'undefined') {
+      document.body.insertAdjacentHTML('beforeend',
+        '<div style="position:fixed;top:12px;left:12px;right:12px;z-index:1000;background:#ff0;color:#000;padding:.6rem;font:14px monospace;border-radius:8px">' +
+        'FEHLER: config.js fehlt oder enthält einen Fehler (Datei liegt neben index.html? Anführungszeichen und Kommas prüfen).</div>');
+      throw new Error('config.js fehlt oder fehlerhaft');
+    }
+
     const THREE = AFRAME.THREE;
-    const DEBUG = new URLSearchParams(location.search).has('debug');
+    const QS = new URLSearchParams(location.search);
+    // ?preview = Vorschau ohne Marke (zum Einstellen der Hotspots am Laptop). Schaltet ?debug automatisch mit ein.
+    const PREVIEW = QS.has('preview');
+    const DEBUG = QS.has('debug') || PREVIEW;
+    // Abstand des Modells vor der Kamera im Vorschau-Modus (größer = Modell wirkt kleiner)
+    const PREVIEW_DIST = 1.0;
 
     const sceneEl  = document.querySelector('a-scene');
     const target   = document.getElementById('target0');
@@ -164,18 +210,29 @@
     const model    = document.getElementById('model');
     const hint     = document.getElementById('hint');
     const tools    = document.getElementById('tools');
+    const editor   = document.getElementById('editor');
     const info     = document.getElementById('info');
     const msg      = document.getElementById('msg');
 
     let targetVisible = false;
+    let modelDone = false;
 
-    // Meldung im gelben Feld (auch JavaScript-Fehler, damit du sie am Handy siehst)
+    // Meldungen im gelben Feld (auch JavaScript-Fehler, damit du sie am Handy siehst)
     function showMsg(t) { msg.textContent = t; msg.style.display = 'block'; }
     function hideMsg() { msg.style.display = 'none'; }
-    let modelDone = false;
     window.addEventListener('error', (e) => showMsg('JS-Fehler: ' + e.message));
     sceneEl.addEventListener('arError', () =>
       showMsg('AR konnte nicht starten. Kamera erlaubt? targets.mind vorhanden? Adresse mit https?'));
+
+    // Querformat: Nach dem Drehen die Größe neu berechnen lassen
+    function onRotate() {
+      if (RELOAD_ON_ROTATE) { location.reload(); return; }
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 350);
+    }
+    window.addEventListener('orientationchange', onRotate);
+    if (screen.orientation && screen.orientation.addEventListener) {
+      screen.orientation.addEventListener('change', onRotate);
+    }
 
     // Marker-Kontrollfläche
     document.getElementById('debugPlane').setAttribute('height', MARKER_ASPECT);
@@ -188,7 +245,12 @@
     // Grunddrehung und Abstand
     const r = START_ROT.split(' ').map(Number);
     startrot.setAttribute('rotation', { x: r[0], y: r[1], z: r[2] });
-    pivot.setAttribute('position', { x: 0, y: 0, z: MODEL_Z });
+    if (PREVIEW) {
+      sceneEl.appendChild(pivot);                       // von der Marke lösen
+      pivot.setAttribute('position', { x: 0, y: 0, z: -PREVIEW_DIST });
+    } else {
+      pivot.setAttribute('position', { x: 0, y: 0, z: MODEL_Z });
+    }
 
     // Modell laden: .glb/.gltf oder .obj
     const lower = MODEL_FILE.toLowerCase();
@@ -252,16 +314,20 @@
       model.object3D.position.copy(center).multiplyScalar(-1);
 
       showMsg('Modell geladen: ' + parts + ' Teile, ' + Math.round(tris) + ' Dreiecke, Originalgröße ' +
-        size.x.toFixed(1) + ' x ' + size.y.toFixed(1) + ' x ' + size.z.toFixed(1));
-      if (!DEBUG) setTimeout(hideMsg, 6000);
+        size.x.toFixed(1) + ' x ' + size.y.toFixed(1) + ' x ' + size.z.toFixed(1) +
+        (tris > 100000 ? '\nAchtung: sehr viele Dreiecke, das kann das Tracking verschlechtern.' : ''));
+      if (!DEBUG || PREVIEW) setTimeout(hideMsg, 5000);
+      if (DEBUG) printCode();
     });
 
     // Hotspots erzeugen (gelbe, pulsierende Kugeln, immer sichtbar)
     const hotspotEls = [];
-    HOTSPOTS.forEach((h) => {
+    function createHotspot(h) {
       const p = h.position.split(' ').map(Number);
       const el = document.createElement('a-sphere');
-      el.setAttribute('radius', '0.04');
+      el.sizeVal = h.size || HOTSPOT_SIZE;
+      h.size = el.sizeVal;
+      el.setAttribute('radius', el.sizeVal);
       el.setAttribute('material', 'color: #ffd400; shader: flat; depthTest: false; transparent: true; opacity: 0.95');
       el.setAttribute('position', { x: p[0], y: p[1], z: p[2] });
       el.setAttribute('animation',
@@ -273,18 +339,22 @@
       el.hotspot = h;
       startrot.appendChild(el);
       hotspotEls.push(el);
-    });
+      return el;
+    }
+    HOTSPOTS.forEach(createHotspot);
 
     // Marke gefunden / verloren
     target.addEventListener('targetFound', () => {
       targetVisible = true;
       hint.style.display = 'block';
       tools.style.display = 'flex';
+      if (DEBUG) editor.style.display = 'flex';
     });
     target.addEventListener('targetLost', () => {
       targetVisible = false;
       hint.style.display = 'none';
       tools.style.display = 'none';
+      editor.style.display = 'none';
       closeInfo();
     });
 
@@ -297,29 +367,185 @@
     function closeInfo() { info.style.display = 'none'; }
     document.getElementById('infoClose').addEventListener('click', closeInfo);
 
-    // Antippen: nächstgelegenen Hotspot auf dem Bildschirm treffen (Toleranz 50 Pixel)
+    // ---------- Hotspot-Editor (nur mit ?debug oder ?preview) ----------
+    let selected = 0;
+    const editPanel = document.getElementById('edit');
+    const editTitle = document.getElementById('editTitle');
+    const editText  = document.getElementById('editText');
+    const editStatus = document.getElementById('editStatus');
+    const editButtons = document.getElementById('editButtons');
+
+    // Erzeugt den kompletten Inhalt der Datei config.js aus dem aktuellen Stand
+    function configText() {
+      const q = (v) => JSON.stringify(v);
+      const hs = hotspotEls.map((el) => {
+        const h = el.hotspot;
+        return '  {\n' +
+          '    position: ' + q(h.position) + ',\n' +
+          '    size: ' + el.sizeVal.toFixed(3) + ',\n' +
+          '    title: ' + q(h.title) + ',\n' +
+          '    text: ' + q(h.text) + '\n' +
+          '  }';
+      }).join(',\n');
+      return '// =====================================================\n' +
+        '// config.js: Inhalte dieser Seite (hier darf die Gruppe ändern)\n' +
+        '// =====================================================\n\n' +
+        '// Dateiname des 3D-Modells (.obj oder .glb), muss GENAU so heißen wie die Datei im Ordner models/\n' +
+        'const MODEL_FILE = ' + q(MODEL_FILE) + ';\n\n' +
+        '// Größe des Modells in Marker-Breiten (1 = so breit wie die Marke)\n' +
+        'const MODEL_SIZE = ' + MODEL_SIZE + ';\n\n' +
+        '// Abstand des Modells vor der Marke (kleiner = ruhiger, 0 = direkt auf der Marke)\n' +
+        'const MODEL_Z = ' + MODEL_Z + ';\n\n' +
+        '// Grunddrehung in Grad "x y z", z. B. "0 180 0" oder "90 0 0"\n' +
+        'const START_ROT = ' + q(START_ROT) + ';\n\n' +
+        '// Seitenverhältnis der Marke (Höhe / Breite)\n' +
+        'const MARKER_ASPECT = ' + MARKER_ASPECT + ';\n\n' +
+        '// Hotspots: position = "x y z" relativ zur Modellmitte, size = Radius, title = Überschrift, text = Infotext.\n' +
+        '// Am einfachsten einstellen mit ?preview am Ende der Adresse, dann "config.js speichern".\n' +
+        'const HOTSPOTS = [\n' + hs + '\n];\n';
+    }
+
+    function codeText() {
+      return hotspotEls.map((el, i) => {
+        const h = el.hotspot;
+        return (i + 1) + ' ' + h.title + '\n' +
+               'position: "' + h.position + '",\n' +
+               'size: ' + el.sizeVal.toFixed(3) + ',';
+      }).join('\n\n');
+    }
+    function printCode() {
+      const el = hotspotEls[selected];
+      if (!el) return;
+      if (PREVIEW) {
+        editStatus.textContent = 'Punkt ' + (selected + 1) + ' · position: "' + el.hotspot.position +
+          '" · size: ' + el.sizeVal.toFixed(3);
+      } else {
+        showMsg('DEBUG: Modell antippen = Punkt ' + (selected + 1) + ' (orange) wandert dorthin.\n\n' + codeText());
+      }
+    }
+    function selectHotspot(i) {
+      selected = i;
+      hotspotEls.forEach((el, k) =>
+        el.setAttribute('material', 'color', k === i ? '#ff6a00' : '#ffd400'));
+      editor.querySelectorAll('button[data-i]').forEach((b) =>
+        b.classList.toggle('sel', Number(b.dataset.i) === i));
+      const h = hotspotEls[i].hotspot;
+      editTitle.value = h.title;
+      editText.value = h.text;
+      printCode();
+    }
+    function resizeSelected(f) {
+      const el = hotspotEls[selected];
+      el.sizeVal = Math.max(0.01, Math.min(0.2, el.sizeVal * f));
+      el.hotspot.size = el.sizeVal;
+      el.setAttribute('radius', el.sizeVal);
+      printCode();
+    }
+
+    function copyText(t, what) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(
+          () => { if (PREVIEW) editStatus.textContent = what + ' kopiert.'; else showMsg('Kopiert!\n\n' + t); },
+          () => showMsg('Kopieren nicht erlaubt, bitte abschreiben:\n\n' + t));
+      } else { showMsg('Bitte abschreiben:\n\n' + t); }
+    }
+    function downloadText(name, t) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([t], { type: 'text/javascript' }));
+      a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+
+    function mkBtn(parent, label, fn, cls) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      if (cls) b.className = cls;
+      b.addEventListener('click', fn);
+      parent.appendChild(b);
+      return b;
+    }
+    function renderEditor() {
+      editor.replaceChildren();
+      hotspotEls.forEach((_, i) => { mkBtn(editor, String(i + 1), () => selectHotspot(i)).dataset.i = i; });
+      mkBtn(editor, 'Punkt −', () => resizeSelected(0.8));
+      mkBtn(editor, 'Punkt +', () => resizeSelected(1.25));
+      if (!PREVIEW) mkBtn(editor, 'Kopieren', () => copyText(configText(), 'config.js'));
+    }
+    function addHotspot() {
+      createHotspot({ position: '0 0 0.1', size: HOTSPOT_SIZE, title: 'Neuer Punkt', text: 'Hier Text eingeben.' });
+      renderEditor();
+      selectHotspot(hotspotEls.length - 1);
+    }
+    function deleteHotspot() {
+      if (hotspotEls.length <= 1) { editStatus.textContent = 'Der letzte Punkt kann nicht gelöscht werden.'; return; }
+      const el = hotspotEls[selected];
+      el.parentNode.removeChild(el);
+      hotspotEls.splice(selected, 1);
+      renderEditor();
+      selectHotspot(Math.min(selected, hotspotEls.length - 1));
+    }
+
+    if (DEBUG) {
+      renderEditor();
+      setTimeout(() => selectHotspot(0), 0);
+    }
+
+    if (PREVIEW) {
+      editTitle.addEventListener('input', () => { hotspotEls[selected].hotspot.title = editTitle.value; });
+      editText.addEventListener('input', () => { hotspotEls[selected].hotspot.text = editText.value; });
+      mkBtn(editButtons, 'Info anzeigen', () => openInfo(hotspotEls[selected].hotspot));
+      mkBtn(editButtons, '+ Punkt', addHotspot);
+      mkBtn(editButtons, 'Punkt löschen', deleteHotspot);
+      mkBtn(editButtons, 'config.js speichern', () => {
+        downloadText('config.js', configText());
+        editStatus.textContent = 'config.js heruntergeladen. In dein Repository hochladen (gleicher Name).';
+      }, 'main');
+      mkBtn(editButtons, 'Kopieren', () => copyText(configText(), 'config.js'));
+
+      targetVisible = true;
+      hint.textContent = 'VORSCHAU ohne Marke · Maus ziehen: drehen · Mausrad: zoomen · Modell anklicken: ausgewählten Punkt dorthin setzen · Punkt anklicken: auswählen';
+      hint.style.display = 'block';
+      tools.style.display = 'flex';
+      editor.style.display = 'flex';
+      editPanel.style.display = 'block';
+    }
+
+    // ---------- Antippen ----------
     const raycaster = new THREE.Raycaster();
+    const wp = new THREE.Vector3(), ws = new THREE.Vector3(),
+          edge = new THREE.Vector3(), right = new THREE.Vector3();
+
     function handleTap(clientX, clientY) {
       if (!targetVisible) return;
       const cam = sceneEl.camera;
       const rect = sceneEl.canvas.getBoundingClientRect();
+      cam.updateMatrixWorld();
+      right.setFromMatrixColumn(cam.matrixWorld, 0);
 
-      let best = null, bestDist = 50;
-      const v = new THREE.Vector3();
+      const toScreen = (p) => {
+        const q = p.clone().project(cam);
+        return { x: rect.left + (q.x * 0.5 + 0.5) * rect.width,
+                 y: rect.top + (-q.y * 0.5 + 0.5) * rect.height, z: q.z };
+      };
+
+      // Nächsten Hotspot suchen: Trefferfläche = sichtbare Kugel (plus 15 %), mindestens TAP_RADIUS_PX
+      let best = null, bestDist = Infinity;
       hotspotEls.forEach((el) => {
-        el.object3D.getWorldPosition(v);
-        v.project(cam);
-        if (v.z > 1) return;                       // hinter der Kamera
-        const sx = rect.left + (v.x * 0.5 + 0.5) * rect.width;
-        const sy = rect.top + (-v.y * 0.5 + 0.5) * rect.height;
-        const dist = Math.hypot(sx - clientX, sy - clientY);
-        if (dist < bestDist) { best = el; bestDist = dist; }
+        el.object3D.getWorldPosition(wp);
+        el.object3D.getWorldScale(ws);
+        const c = toScreen(wp);
+        if (c.z > 1) return;                       // hinter der Kamera
+        edge.copy(wp).addScaledVector(right, el.sizeVal * ws.x);
+        const e = toScreen(edge);
+        const reach = Math.max(TAP_RADIUS_PX, Math.hypot(e.x - c.x, e.y - c.y) * 1.15);
+        const dist = Math.hypot(c.x - clientX, c.y - clientY);
+        if (dist <= reach && dist < bestDist) { best = el; bestDist = dist; }
       });
 
-      if (best) { openInfo(best.hotspot); return; }
-
       if (DEBUG) {
-        // Koordinaten der angetippten Modellstelle anzeigen
+        // Anderen Punkt angeklickt: auswählen. Den schon ausgewählten Punkt oder das Modell angeklickt: dorthin setzen.
+        if (best && hotspotEls.indexOf(best) !== selected) { selectHotspot(hotspotEls.indexOf(best)); return; }
         const ndc = new THREE.Vector2(
           ((clientX - rect.left) / rect.width) * 2 - 1,
           -((clientY - rect.top) / rect.height) * 2 + 1
@@ -328,14 +554,19 @@
         const hits = raycaster.intersectObject(holder.object3D, true);
         if (hits.length) {
           const local = startrot.object3D.worldToLocal(hits[0].point.clone());
-          showMsg('position: "' + local.x.toFixed(3) + ' ' + local.y.toFixed(3) + ' ' + local.z.toFixed(3) + '"');
+          const el = hotspotEls[selected];
+          el.object3D.position.copy(local);
+          el.hotspot.position = local.x.toFixed(3) + ' ' + local.y.toFixed(3) + ' ' + local.z.toFixed(3);
+          printCode();
         }
-      } else {
-        closeInfo();                                // Tippen daneben schließt das Fenster
+        return;
       }
+
+      if (best) openInfo(best.hotspot);
+      else closeInfo();                             // Tippen daneben schließt das Fenster
     }
 
-    // Drehen (1 Finger / Maus) und Zoomen (2 Finger / Mausrad / Knöpfe)
+    // ---------- Drehen (1 Finger / Maus) und Zoomen (2 Finger / Mausrad / Knöpfe) ----------
     const pointers = new Map();
     let startDist = 0, startScale = 1, scale = 1;
     let rotX = 0, rotY = 0;
@@ -397,7 +628,10 @@
     });
 
     // Mausrad (zum Testen am Computer)
-    window.addEventListener('wheel', (e) => zoomBy(e.deltaY < 0 ? 1.1 : 0.9), { passive: true });
+    window.addEventListener('wheel', (e) => {
+      if (e.target.closest && e.target.closest('.ui')) return;   // über Textfeldern nicht zoomen
+      zoomBy(e.deltaY < 0 ? 1.1 : 0.9);
+    }, { passive: true });
 
     // iPhone: Browser-eigenes Zoomen der Seite verhindern
     document.addEventListener('gesturestart', (e) => e.preventDefault());
