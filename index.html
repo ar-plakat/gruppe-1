@@ -503,6 +503,60 @@
       }, 'main');
       mkBtn(editButtons, 'Kopieren', () => copyText(configText(), 'config.js'));
 
+      // ----- Direkt auf GitHub speichern (braucht einen Token, siehe Anleitung) -----
+      const ghBox = document.createElement('div');
+      ghBox.className = 'row';
+      const ghToken = document.createElement('input');
+      ghToken.type = 'password';
+      ghToken.placeholder = 'GitHub-Token (github_pat_…)';
+      ghToken.autocomplete = 'off';
+      ghToken.style.flex = '1 1 100%';
+      try { ghToken.value = localStorage.getItem('ghToken') || ''; } catch (e) {}
+      ghBox.appendChild(ghToken);
+
+      async function saveToGitHub() {
+        const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+        const repo = location.pathname.split('/').filter(Boolean)[0];
+        if (!m || !repo) { editStatus.textContent = 'Direktes Speichern geht nur auf der GitHub-Seite (…github.io/gruppe-X/?preview).'; return; }
+        const token = ghToken.value.trim();
+        if (!token) { editStatus.textContent = 'Bitte zuerst den Token eintragen.'; return; }
+        try { localStorage.setItem('ghToken', token); } catch (e) {}
+        const api = 'https://api.github.com/repos/' + m[1] + '/' + repo + '/contents/config.js';
+        const headers = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json' };
+        const fail = (r) => {
+          editStatus.textContent =
+            r.status === 401 ? 'Token falsch oder abgelaufen (401).' :
+            (r.status === 403 || r.status === 404) ? 'Keine Berechtigung für dieses Repository oder Token gehört zu einem anderen (' + r.status + ').' :
+            (r.status === 409 || r.status === 422) ? 'Konflikt, bitte noch einmal klicken (' + r.status + ').' :
+            'Fehler beim Speichern (' + r.status + ').';
+        };
+        editStatus.textContent = 'Speichere …';
+        try {
+          let sha;
+          const g = await fetch(api, { headers, cache: 'no-store' });
+          if (g.ok) sha = (await g.json()).sha;
+          else if (g.status !== 404) { fail(g); return; }
+          const bytes = new TextEncoder().encode(configText());
+          let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+          const body = { message: 'config.js geändert (Vorschau-Editor)', content: btoa(bin) };
+          if (sha) body.sha = sha;
+          const p = await fetch(api, { method: 'PUT',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+            body: JSON.stringify(body) });
+          if (!p.ok) { fail(p); return; }
+          editStatus.textContent = 'Gespeichert auf GitHub. In 1–2 Minuten ist die neue Version am Handy sichtbar (Adresse mit ?v=2, ?v=3 … öffnen).';
+        } catch (e) {
+          editStatus.textContent = 'Keine Verbindung zu GitHub: ' + e.message;
+        }
+      }
+      mkBtn(ghBox, 'Auf GitHub speichern', saveToGitHub, 'main');
+      mkBtn(ghBox, 'Token vergessen', () => {
+        try { localStorage.removeItem('ghToken'); } catch (e) {}
+        ghToken.value = '';
+        editStatus.textContent = 'Token aus diesem Browser gelöscht.';
+      });
+      editPanel.insertBefore(ghBox, editStatus);
+
       targetVisible = true;
       hint.textContent = 'VORSCHAU ohne Marke · Maus ziehen: drehen · Mausrad: zoomen · Modell anklicken: ausgewählten Punkt dorthin setzen · Punkt anklicken: auswählen';
       hint.style.display = 'block';
