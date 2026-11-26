@@ -22,9 +22,9 @@ const MARKER_ASPECT = 0.727;
 const HOTSPOTS = [
   {
     position: "0.085 -0.044 0.088",
-    size: 0.026,
+    size: 0.010,
     title: "Objektiv",
-    text: "Das Objektiv bündelt das Licht und erzeugt das Bild auf dem Sensor. Die Brennweite bestimmt den Bildausschnitt, die Blende die Lichtmenge und die Schärfentiefe. Test 1"
+    text: "Das Objektiv bündelt das Licht und erzeugt das Bild auf dem Sensor. Die Brennweite bestimmt den Bildausschnitt, die Blende die Lichtmenge und die Schärfentiefe. Test 3"
   },
   {
     position: "0.12 0.1 0",
@@ -37,5 +37,11 @@ const HOTSPOTS = [
     size: 0.040,
     title: "Auslöser",
     text: "Ein halber Druck stellt meist scharf und misst das Licht. Beim vollen Druck öffnet sich der Verschluss, wie lange, bestimmt die Belichtungszeit."
+  },
+  {
+    position: "0 0 0.1",
+    size: 0.040,
+    title: "Neuer Punkt",
+    text: "Hier Text eingeben."
   }
 ];
