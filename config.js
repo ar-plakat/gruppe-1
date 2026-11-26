@@ -43,5 +43,11 @@ const HOTSPOTS = [
     size: 0.040,
     title: "Neuer Punkt",
     text: "Hier Text eingeben."
+  },
+  {
+    position: "-0.155 -0.138 0.119",
+    size: 0.040,
+    title: "Neuer Punkt",
+    text: "Test4"
   }
 ];
